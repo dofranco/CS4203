@@ -30,6 +30,7 @@
 #include <glm/glm.hpp>
 #include <cmath>
 #include <iostream>
+#include <vector>
 
 using namespace glm;
 
@@ -123,17 +124,19 @@ struct Ray {
         color.z = 0;
     };
     //pass in points by vec3's
-    Ray(glm::dvec3 origin, glm::dvec3 direction) {
-        this->origin = origin;
-        this->direction = direction;
+    Ray(glm::dvec3 in_orig, glm::dvec3 in_dir) {
+        origin = in_orig;
+        direction = in_dir;
         direction = glm::normalize(direction);
-        color.x = 50;
-        color.y = 50;
-        color.z = 50;
+        color.r = 50;
+        color.g = 50;
+        color.b = 50;
     }
 };
 
-Ray** rays;
+//Ray** rays;
+
+std::vector<std::vector<Ray>> rays;
 
 double square(double num) {
     return num * num;
@@ -614,9 +617,19 @@ void init()
   glClear(GL_COLOR_BUFFER_BIT);
 
   //Draw Rays
-  rays = new Ray * [WIDTH];
+  /*
+    rays = new Ray * [WIDTH];
   for (int i = 0; i < WIDTH; i++) {
       rays[i] = new Ray[HEIGHT];
+  }
+  */
+  rays.resize(WIDTH);
+
+  for (int i = 0; i < WIDTH; i++)
+  {
+
+     rays[i].resize(HEIGHT);
+
   }
 
   //define the four corners
