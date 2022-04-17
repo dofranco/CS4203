@@ -26,9 +26,18 @@
 
 #include <imageIO.h>
 
+#include <math.h>
+#include <glm/glm.hpp>
+#include <cmath>
+#include <iostream>
+
+using namespace glm;
+
 #define MAX_TRIANGLES 20000
 #define MAX_SPHERES 100
 #define MAX_LIGHTS 100
+
+#define PI 3.14159265
 
 char * filename = NULL;
 
@@ -44,6 +53,8 @@ int mode = MODE_DISPLAY;
 
 //the field of view of the camera
 #define fov 60.0
+
+const double aspect_ratio = (double)WIDTH / HEIGHT;
 
 unsigned char buffer[HEIGHT][WIDTH][3];
 
@@ -68,6 +79,11 @@ struct Sphere
   double color_specular[3];
   double shininess;
   double radius;
+
+  glm::vec3 calculateUnitNormal(glm::vec3 point) {
+      glm::vec3 center = glm::vec3(position[0], position[1], position[2]);
+      return normalize(point - center);
+  }
 };
 
 struct Light
@@ -75,6 +91,101 @@ struct Light
   double position[3];
   double color[3];
 };
+
+struct Object {
+    Object() { objectNum = -1; };
+    std::string objectType;
+    int objectNum;
+    double tvalue;
+    glm::dvec3 intersection;
+};
+
+struct Ray {
+
+    glm::dvec3 origin;
+    glm::dvec3 direction;
+
+    Object closestObject;
+    glm::dvec3 color;
+
+    Ray() {}; //default constructor
+    //pass in points individually
+    Ray(double ox, double oy, double oz, double dx, double dy, double dz) {
+        origin.x = ox;
+        origin.y = oy;
+        origin.z = oz;
+        direction.x = dx;
+        direction.y = dy;
+        direction.z = dz;
+        direction = glm::normalize(direction);
+        color.x = 0;
+        color.y = 0;
+        color.z = 0;
+    };
+    //pass in points by vec3's
+    Ray(glm::dvec3 origin, glm::dvec3 direction) {
+        this->origin = origin;
+        this->direction = direction;
+        direction = glm::normalize(direction);
+        color.x = 50;
+        color.y = 50;
+        color.z = 50;
+    }
+};
+
+Ray** rays;
+
+double square(double num) {
+    return num * num;
+}
+
+double distanceSquared(dvec3 start, dvec3 end) {
+    return square(start.x - end.x) + square(start.y - end.y) + square(start.z - end.z);
+}
+
+double quadraticMinimum(double a, double b, double c) {
+    double t0 = (-b + sqrt(b * b - 4 * a * c)) / 2;
+    double t1 = (-b - sqrt(b * b - 4 * a * c)) / 2;
+    if (t0 > t1) {
+        if (t1 > 0) {
+            return t1;
+        }
+        else if (t0 > 0) {
+            return t0;
+        }
+        else {
+            return -1;
+        }
+    }
+    else {
+        if (t0 > 0) {
+            return t0;
+        }
+        else if (t1 > 0) {
+            return t1;
+        }
+        else {
+            return -1;
+        }
+    }
+}
+
+dvec3 toVec3(double* array) {
+    dvec3 result;
+    result.x = array[0];
+    result.y = array[1];
+    result.z = array[2];
+    return result;
+}
+
+//taken from GLM website
+double clamp(double x, double minVal, double maxVal) {
+    return std::min(std::max(x, minVal), maxVal);
+}
+
+//The amount to increment the pixels X and Y values for the rays
+double deltaX, deltaY;
+int shadowsCount = 0, outerloop = 0, elseloop = 0;
 
 Triangle triangles[MAX_TRIANGLES];
 Sphere spheres[MAX_SPHERES];
@@ -89,10 +200,213 @@ void plot_pixel_display(int x,int y,unsigned char r,unsigned char g,unsigned cha
 void plot_pixel_jpeg(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 void plot_pixel(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 
+/**
+ * Calculate barycentric coordinates using a point inside a triangle, and the vertices of a triangle (a, b, and c)
+ *
+ * @return dvec3- a vec3 containing the values of Alpha, Beta, and Gamma
+ */
+dvec3 calcBarycentric(dvec3 point, dvec3 a, dvec3 b, dvec3 c) {
+    dvec3 v0 = b - a;
+    dvec3 v1 = c - a;
+    dvec3 v2 = point - a;
+
+    double d00 = dot(v0, v0);
+    double d01 = dot(v0, v1);
+    double d11 = dot(v1, v1);
+    double d20 = dot(v2, v0);
+    double d21 = dot(v2, v1);
+
+    double result = d00 * d11 - d01 * d01;
+    dvec3 vec_result;
+    vec_result.y = (d11 * d20 - d01 * d21) / result; //alpha
+    vec_result.z = (d00 * d21 - d01 * d20) / result; //beta
+    vec_result.x = 1.0 - vec_result.z - vec_result.y; //gamma
+    return vec_result;
+}
+
+void calculateRaySphereIntersection(Ray& ray, int num) {
+    for (int i = 0; i < num_spheres; i++) {
+        if (i != num) {
+            double radius = spheres[i].radius;
+            double xc = spheres[i].position[0];
+            double yc = spheres[i].position[1];
+            double zc = spheres[i].position[2];
+
+            double xd = ray.direction.x;
+            double yd = ray.direction.y;
+            double zd = ray.direction.z;
+
+            double x0 = ray.origin.x;
+            double y0 = ray.origin.y;
+            double z0 = ray.origin.z;
+
+            double b = 2 * (xd * (x0 - xc) + yd * (y0 - yc) + zd * (z0 - zc));
+            double c = square(x0 - xc) + square(y0 - yc) + square(z0 - zc) - square(radius);
+            double result = quadraticMinimum(1, b, c);
+            if (result > 0) {
+                if (ray.closestObject.objectNum == -1 || ray.closestObject.tvalue > result) {
+                    Object newObject;
+                    newObject.objectType = "SPHERE";
+                    newObject.objectNum = i;
+                    newObject.tvalue = result;
+                    newObject.intersection = ray.origin + result * ray.direction;
+                    ray.closestObject = newObject;
+                }
+            }
+        }
+    }
+}
+
+void calculateRayTriangleIntersection(Ray& ray, int num) {
+    for (int i = 0; i < num_triangles; i++) {
+        if (i != num) {
+            Triangle triangle = triangles[i];
+            dvec3 pointA = dvec3(triangle.v[0].position[0], triangle.v[0].position[1], triangle.v[0].position[2]);
+            dvec3 pointB = dvec3(triangle.v[1].position[0], triangle.v[1].position[1], triangle.v[1].position[2]);
+            dvec3 pointC = dvec3(triangle.v[2].position[0], triangle.v[2].position[1], triangle.v[2].position[2]);
+
+            dvec3 n = cross((pointB - pointA), (pointC - pointA));
+            n = normalize(n);
+            if (dot(n, ray.direction) != 0) {
+
+                double t = dot(n, pointA - ray.origin) / (dot(n, ray.direction));
+
+                if (t > 0) {
+                    if (ray.closestObject.objectNum == -1 || ray.closestObject.tvalue > t) {
+                        // Check if the intersection point is inside the triangle. 
+                        // Implemented concept from http://www.blackpawn.com/texts/pointinpoly/
+                        // Compute vectors        
+                        dvec3 v0 = pointC - pointA;
+                        dvec3 v1 = pointB - pointA;
+                        dvec3 v2 = ray.origin + t * ray.direction - pointA;
+
+                        // Compute dot products
+                        double dot00 = dot(v0, v0);
+                        double dot01 = dot(v0, v1);
+                        double dot02 = dot(v0, v2);
+                        double dot11 = dot(v1, v1);
+                        double dot12 = dot(v1, v2);
+
+                        // Compute barycentric coordinates
+                        double denom = (dot00 * dot11 - dot01 * dot01);
+                        double u = (dot11 * dot02 - dot01 * dot12) / denom;
+                        double v = (dot00 * dot12 - dot01 * dot02) / denom;
+
+                        // Check if point is in triangle
+                        if ((u >= 0) && (v >= 0) && (u + v < 1)) {
+
+                            Object newObject;
+                            newObject.objectType = "TRIANGLE";
+                            newObject.objectNum = i;
+                            newObject.tvalue = t;
+                            newObject.intersection = ray.origin + t * ray.direction;
+                            ray.closestObject = newObject;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Fire a shadow ray, and then calculate the color using Phong illumination model if there is no intersection
+ * If the shadow ray is obstructed, then return black
+ *
+ *
+ *
+ */
+void calculateShadowRay(Ray& ray) {
+    //Fire a shadow ray first for each light source
+    for (int i = 0; i < num_lights; i++) {
+        Light light = lights[i];
+
+        //If the ray actually intersected with something, fire the shadow ray
+        if (ray.closestObject.objectNum != -1) {
+            dvec3 lightVec = dvec3(light.position[0], light.position[1], light.position[2]);
+            lightVec -= ray.closestObject.intersection;
+            lightVec = normalize(lightVec);
+            Ray shadowRay = Ray(ray.closestObject.intersection, lightVec);
+
+            if (ray.closestObject.objectType == "SPHERE") {
+                calculateRaySphereIntersection(shadowRay, ray.closestObject.objectNum);
+                calculateRayTriangleIntersection(shadowRay, -1);
+            }
+            else {
+                calculateRayTriangleIntersection(shadowRay, ray.closestObject.objectNum);
+                calculateRaySphereIntersection(shadowRay, -1);
+            }
+            //Check if shadow ray intersection, if it exists, is behind the light or not
+            if (shadowRay.closestObject.objectNum != -1) {
+
+                double distanceFromPointToIntersection = distanceSquared(ray.closestObject.intersection, shadowRay.closestObject.intersection);
+                double distanceFromPointToLight = distanceSquared(ray.closestObject.intersection, dvec3(light.position[0], light.position[1], light.position[2]));
+                //if the point that the shadow ray intersects with is further than the light, don't consider it blocked
+                if (distanceFromPointToIntersection > distanceFromPointToLight) {
+                    shadowRay.closestObject.objectNum = -1;
+                }
+            }
+
+            //if there is no intersection, calculate color using Phong Illumination model with respect to that light
+            if (shadowRay.closestObject.objectNum == -1) {
+                dvec3 kd, ks;
+                double alpha; //diffuse, specular, and alpha (shininess)
+
+                dvec3 l, n, r, v, L; //Light vector, normal vector, reflect vector, vector to image plane, Light color
+                L = toVec3(light.color);
+                v = -ray.direction;
+                l = normalize(shadowRay.direction);
+
+                //Calculate lighting for Spheres
+                if (ray.closestObject.objectType == "SPHERE") {
+                    Sphere s = spheres[ray.closestObject.objectNum];
+                    n = s.calculateUnitNormal(ray.closestObject.intersection);
+
+                    kd = dvec3(s.color_diffuse[0], s.color_diffuse[1], s.color_diffuse[2]);
+                    ks = dvec3(s.color_specular[0], s.color_specular[1], s.color_specular[2]);
+                    alpha = s.shininess;
+
+                }
+
+                //Calculate lighting for triangles
+                else if (ray.closestObject.objectType == "TRIANGLE") {
+                    Triangle t = triangles[ray.closestObject.objectNum];
+                    Vertex a = t.v[0], b = t.v[1], c = t.v[2];
+                    dvec3 bary = calcBarycentric(ray.closestObject.intersection, toVec3(a.position), toVec3(b.position), toVec3(c.position));
+                    n = normalize(toVec3(a.normal) * bary.x + toVec3(b.normal) * bary.y + toVec3(c.normal) * bary.z);
+
+                    kd = toVec3(a.color_diffuse) * bary.x + toVec3(b.color_diffuse) * bary.y + toVec3(c.color_diffuse) * bary.z;
+                    ks = toVec3(a.color_specular) * bary.x + toVec3(b.color_specular) * bary.y + toVec3(c.color_specular) * bary.z;
+                    alpha = a.shininess * bary.x + b.shininess * bary.y + c.shininess * bary.z;
+                }
+
+                double ln = dot(l, n);
+                if (ln < 0) ln = 0;
+
+                r = 2 * (ln)*n - l;
+                double rv = dot(r, v);
+                if (rv < 0) rv = 0;
+
+
+                //kd(l*n) + ks(r*v)^a
+                double red = L.x * (kd.x * (ln)+ks.x * pow(rv, alpha)) * 255;
+                double green = L.y * (kd.y * (ln)+ks.y * pow(rv, alpha)) * 255;
+                double blue = L.z * (kd.z * (ln)+ks.z * pow(rv, alpha)) * 255;
+
+                ray.color.x += red;
+                ray.color.y += green;
+                ray.color.z += blue;
+
+            }
+        }
+    }
+}
+
 //MODIFY THIS FUNCTION
 void draw_scene()
 {
-  //a simple test output
+    /*
+      //a simple test output
   for(unsigned int x=0; x<WIDTH; x++)
   {
     glPointSize(2.0);  
@@ -105,6 +419,40 @@ void draw_scene()
     glFlush();
   }
   printf("Done!\n"); fflush(stdout);
+    
+    */
+    //a simple test output
+    glPointSize(2.0);
+    glBegin(GL_POINTS);
+
+    for (unsigned int x = 0; x < WIDTH; x++)
+    {
+
+        for (unsigned int y = 0; y < HEIGHT; y++)
+        {
+            calculateRayTriangleIntersection(rays[x][y], -1);
+            calculateRaySphereIntersection(rays[x][y], -1);
+            calculateShadowRay(rays[x][y]);
+
+            //if you can't find the intersection, plot a white color
+            if (rays[x][y].closestObject.objectNum == -1) {
+                plot_pixel(x, y, 255, 255, 255);
+            }
+
+            //plot the actual color of the ray intersection
+            else {
+                double red = clamp(rays[x][y].color.x + 255 * ambient_light[0], 0, 255);
+                double green = clamp(rays[x][y].color.y + 255 * ambient_light[1], 0, 255);
+                double blue = clamp(rays[x][y].color.z + 255 * ambient_light[2], 0, 255);
+
+                plot_pixel(x, y, red, green, blue);
+            }
+        }
+    }
+    glEnd();
+    glFlush();
+
+    printf("Done!\n"); fflush(stdout);
 }
 
 void plot_pixel_display(int x, int y, unsigned char r, unsigned char g, unsigned char b)
@@ -264,6 +612,41 @@ void init()
 
   glClearColor(0,0,0,0);
   glClear(GL_COLOR_BUFFER_BIT);
+
+  //Draw Rays
+  rays = new Ray * [WIDTH];
+  for (int i = 0; i < WIDTH; i++) {
+      rays[i] = new Ray[HEIGHT];
+  }
+
+  //define the four corners
+  double tangentValue = tan(fov * PI / 180.0 / 2);
+  double x_max = aspect_ratio * tangentValue;
+  double x_min = -1 * aspect_ratio * tangentValue;
+  double y_max = tangentValue;
+  double y_min = -1 * tangentValue;
+
+  rays[0][0] = Ray(0, 0, 0, x_min, y_min, -1);
+  rays[WIDTH - 1][0] = Ray(0, 0, 0, x_max, y_min, -1);
+  rays[0][HEIGHT - 1] = Ray(0, 0, 0, x_min, y_max, -1);
+  rays[WIDTH - 1][HEIGHT - 1] = Ray(0, 0, 0, x_max, y_max, -1);
+
+  //set up increment values
+  deltaX = (x_max - x_min) / WIDTH;
+  deltaY = (y_max - y_min) / HEIGHT;
+
+  double x_count = x_min;
+  double y_count = y_min;
+  //create the remaining rays
+  for (int i = 0; i < WIDTH; i++) {
+      for (int j = 0; j < HEIGHT; j++) {
+          rays[i][j] = Ray(0, 0, 0, x_min + i * deltaX, y_min + j * deltaY, -1);
+          y_count += deltaY;
+      }
+      y_count = y_min;
+      x_count += deltaX;
+  }
+
 }
 
 void idle()
