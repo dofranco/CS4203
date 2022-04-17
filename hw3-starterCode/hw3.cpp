@@ -49,13 +49,15 @@ char * filename = NULL;
 int mode = MODE_DISPLAY;
 
 //you may want to make these smaller for debugging purposes
-#define WIDTH 320
-#define HEIGHT 240
+#define WIDTH 640
+#define HEIGHT 480
 
 //the field of view of the camera
 #define fov 60.0
 
 const float aspect_ratio = (float)WIDTH / HEIGHT;
+
+glm::vec3 zero_vector = { 0.0f, 0.0f, 0.0f };
 
 unsigned char buffer[HEIGHT][WIDTH][3];
 
@@ -93,12 +95,12 @@ struct Light
   double color[3];
 };
 
-struct Object {
-    Object() { objectNum = -1; };
-    std::string objectType;
-    int objectNum;
-    double tvalue;
-    glm::dvec3 intersection;
+struct SceneObj {
+    SceneObj() : obj_num(-1) {};
+    std::string obj_type;
+    int obj_num;
+    double obj_val;
+    glm::dvec3 intersect_point;
 };
 
 struct Ray {
@@ -106,12 +108,14 @@ struct Ray {
     glm::dvec3 origin;
     glm::dvec3 direction;
 
-    Object closestObject;
-    glm::dvec3 color;
+    SceneObj obj_intersected;
+    glm::vec3 ray_color;
 
     Ray() {}; //default constructor
     //pass in points individually
-    Ray(double ox, double oy, double oz, double dx, double dy, double dz) {
+    
+    /*
+        Ray(double ox, double oy, double oz, double dx, double dy, double dz) {
         origin.x = ox;
         origin.y = oy;
         origin.z = oz;
@@ -123,14 +127,22 @@ struct Ray {
         color.y = 0;
         color.z = 0;
     };
+    */
     //pass in points by vec3's
-    Ray(glm::dvec3 in_orig, glm::dvec3 in_dir) {
+    Ray(glm::dvec3 in_orig, glm::dvec3 in_dir)
+    {
         origin = in_orig;
         direction = in_dir;
         direction = glm::normalize(direction);
-        color.r = 50;
-        color.g = 50;
-        color.b = 50;
+        ray_color = zero_vector;
+    }
+
+    void Set_Ray(glm::dvec3 origin_set, glm::dvec3 dir_set) 
+    {
+        origin = origin_set;
+        direction = dir_set;
+        direction = glm::normalize(direction);
+        ray_color = zero_vector;
     }
 };
 
@@ -206,11 +218,7 @@ void plot_pixel_display(int x,int y,unsigned char r,unsigned char g,unsigned cha
 void plot_pixel_jpeg(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 void plot_pixel(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 
-/**
- * Calculate barycentric coordinates using a point inside a triangle, and the vertices of a triangle (a, b, and c)
- *
- * @return dvec3- a vec3 containing the values of Alpha, Beta, and Gamma
- */
+
 dvec3 calcBarycentric(dvec3 point, dvec3 a, dvec3 b, dvec3 c) {
     dvec3 v0 = b - a;
     dvec3 v1 = c - a;
@@ -250,13 +258,13 @@ void calculateRaySphereIntersection(Ray& ray, int num) {
             double c = pow((x0 - xc),2) + pow((y0 - yc),2) + pow((z0 - zc),2) - pow(radius,2);
             double result = quadraticMinimum(1, b, c);
             if (result > 0) {
-                if (ray.closestObject.objectNum == -1 || ray.closestObject.tvalue > result) {
-                    Object newObject;
-                    newObject.objectType = "SPHERE";
-                    newObject.objectNum = i;
-                    newObject.tvalue = result;
-                    newObject.intersection = ray.origin + result * ray.direction;
-                    ray.closestObject = newObject;
+                if (ray.obj_intersected.obj_num == -1 || ray.obj_intersected.obj_val > result) {
+                    SceneObj this_obj;
+                    this_obj.obj_type = "SPHERE";
+                    this_obj.obj_num = i;
+                    this_obj.obj_val = result;
+                    this_obj.intersect_point = ray.origin + result * ray.direction;
+                    ray.obj_intersected = this_obj;
                 }
             }
         }
@@ -278,10 +286,8 @@ void calculateRayTriangleIntersection(Ray& ray, int num) {
                 double t = dot(n, pointA - ray.origin) / (dot(n, ray.direction));
 
                 if (t > 0) {
-                    if (ray.closestObject.objectNum == -1 || ray.closestObject.tvalue > t) {
-                        // Check if the intersection point is inside the triangle. 
-                        // Implemented concept from http://www.blackpawn.com/texts/pointinpoly/
-                        // Compute vectors        
+                    if (ray.obj_intersected.obj_num == -1 || ray.obj_intersected.obj_val > t) {
+                        // Check if the intersection point is inside the triangle.       
                         dvec3 v0 = pointC - pointA;
                         dvec3 v1 = pointB - pointA;
                         dvec3 v2 = ray.origin + t * ray.direction - pointA;
@@ -301,12 +307,12 @@ void calculateRayTriangleIntersection(Ray& ray, int num) {
                         // Check if point is in triangle
                         if ((u >= 0) && (v >= 0) && (u + v < 1)) {
 
-                            Object newObject;
-                            newObject.objectType = "TRIANGLE";
-                            newObject.objectNum = i;
-                            newObject.tvalue = t;
-                            newObject.intersection = ray.origin + t * ray.direction;
-                            ray.closestObject = newObject;
+                            SceneObj this_obj;
+                            this_obj.obj_type = "TRIANGLE";
+                            this_obj.obj_num = i;
+                            this_obj.obj_val = t;
+                            this_obj.intersect_point = ray.origin + t * ray.direction;
+                            ray.obj_intersected = this_obj;
                         }
                     }
                 }
@@ -328,33 +334,34 @@ void calculateShadowRay(Ray& ray) {
         Light light = lights[i];
 
         //If the ray actually intersected with something, fire the shadow ray
-        if (ray.closestObject.objectNum != -1) {
+        if (ray.obj_intersected.obj_num != -1) {
             dvec3 lightVec = dvec3(light.position[0], light.position[1], light.position[2]);
-            lightVec -= ray.closestObject.intersection;
+            lightVec -= ray.obj_intersected.intersect_point;
             lightVec = normalize(lightVec);
-            Ray shadowRay = Ray(ray.closestObject.intersection, lightVec);
+            Ray shadowRay = Ray(ray.obj_intersected.intersect_point, lightVec);
 
-            if (ray.closestObject.objectType == "SPHERE") {
-                calculateRaySphereIntersection(shadowRay, ray.closestObject.objectNum);
+            if (ray.obj_intersected.obj_type == "SPHERE") {
+                calculateRaySphereIntersection(shadowRay, ray.obj_intersected.obj_num);
                 calculateRayTriangleIntersection(shadowRay, -1);
             }
             else {
-                calculateRayTriangleIntersection(shadowRay, ray.closestObject.objectNum);
+                calculateRayTriangleIntersection(shadowRay, ray.obj_intersected.obj_num);
                 calculateRaySphereIntersection(shadowRay, -1);
             }
-            //Check if shadow ray intersection, if it exists, is behind the light or not
-            if (shadowRay.closestObject.objectNum != -1) {
 
-                double distanceFromPointToIntersection = distanceSquared(ray.closestObject.intersection, shadowRay.closestObject.intersection);
-                double distanceFromPointToLight = distanceSquared(ray.closestObject.intersection, dvec3(light.position[0], light.position[1], light.position[2]));
+            //Check if shadow ray intersection, if it exists, is behind the light or not
+            if (shadowRay.obj_intersected.obj_num != -1) {
+
+                double distanceFromPointToIntersection = distanceSquared(ray.obj_intersected.intersect_point, shadowRay.obj_intersected.intersect_point);
+                double distanceFromPointToLight = distanceSquared(ray.obj_intersected.intersect_point, dvec3(light.position[0], light.position[1], light.position[2]));
                 //if the point that the shadow ray intersects with is further than the light, don't consider it blocked
                 if (distanceFromPointToIntersection > distanceFromPointToLight) {
-                    shadowRay.closestObject.objectNum = -1;
+                    shadowRay.obj_intersected.obj_num = -1;
                 }
             }
 
             //if there is no intersection, calculate color using Phong Illumination model with respect to that light
-            if (shadowRay.closestObject.objectNum == -1) {
+            if (shadowRay.obj_intersected.obj_num == -1) {
                 dvec3 kd, ks;
                 double alpha; //diffuse, specular, and alpha (shininess)
 
@@ -364,9 +371,9 @@ void calculateShadowRay(Ray& ray) {
                 l = normalize(shadowRay.direction);
 
                 //Calculate lighting for Spheres
-                if (ray.closestObject.objectType == "SPHERE") {
-                    Sphere s = spheres[ray.closestObject.objectNum];
-                    n = s.calculateUnitNormal(ray.closestObject.intersection);
+                if (ray.obj_intersected.obj_type == "SPHERE") {
+                    Sphere s = spheres[ray.obj_intersected.obj_num];
+                    n = s.calculateUnitNormal(ray.obj_intersected.intersect_point);
 
                     kd = dvec3(s.color_diffuse[0], s.color_diffuse[1], s.color_diffuse[2]);
                     ks = dvec3(s.color_specular[0], s.color_specular[1], s.color_specular[2]);
@@ -375,10 +382,10 @@ void calculateShadowRay(Ray& ray) {
                 }
 
                 //Calculate lighting for triangles
-                else if (ray.closestObject.objectType == "TRIANGLE") {
-                    Triangle t = triangles[ray.closestObject.objectNum];
+                else if (ray.obj_intersected.obj_type == "TRIANGLE") {
+                    Triangle t = triangles[ray.obj_intersected.obj_num];
                     Vertex a = t.v[0], b = t.v[1], c = t.v[2];
-                    dvec3 bary = calcBarycentric(ray.closestObject.intersection, toVec3(a.position), toVec3(b.position), toVec3(c.position));
+                    dvec3 bary = calcBarycentric(ray.obj_intersected.intersect_point, toVec3(a.position), toVec3(b.position), toVec3(c.position));
                     n = normalize(toVec3(a.normal) * bary.x + toVec3(b.normal) * bary.y + toVec3(c.normal) * bary.z);
 
                     kd = toVec3(a.color_diffuse) * bary.x + toVec3(b.color_diffuse) * bary.y + toVec3(c.color_diffuse) * bary.z;
@@ -399,9 +406,9 @@ void calculateShadowRay(Ray& ray) {
                 double green = L.y * (kd.y * (ln)+ks.y * pow(rv, alpha)) * 255;
                 double blue = L.z * (kd.z * (ln)+ks.z * pow(rv, alpha)) * 255;
 
-                ray.color.x += red;
-                ray.color.y += green;
-                ray.color.z += blue;
+                ray.ray_color.r += red;
+                ray.ray_color.g += green;
+                ray.ray_color.b += blue;
 
             }
         }
@@ -441,17 +448,17 @@ void draw_scene()
             calculateShadowRay(all_rays[x][y]);
 
             //if you can't find the intersection, plot a white color
-            if (all_rays[x][y].closestObject.objectNum == -1) {
-                plot_pixel(x, y, 255, 255, 255);
+            if (all_rays[x][y].obj_intersected.obj_num == -1) {
+                plot_pixel(x, y, 0.5f * 255, 0.5f * 255, 0.5f * 255);
             }
 
             //plot the actual color of the ray intersection
             else {
-                double red = clamp(all_rays[x][y].color.x + 255 * ambient_light[0], 0, 255);
-                double green = clamp(all_rays[x][y].color.y + 255 * ambient_light[1], 0, 255);
-                double blue = clamp(all_rays[x][y].color.z + 255 * ambient_light[2], 0, 255);
+                double r = clamp(all_rays[x][y].ray_color.r + 255 * ambient_light[0], 0, 255);
+                double g = clamp(all_rays[x][y].ray_color.g + 255 * ambient_light[1], 0, 255);
+                double b = clamp(all_rays[x][y].ray_color.b + 255 * ambient_light[2], 0, 255);
 
-                plot_pixel(x, y, red, green, blue);
+                plot_pixel(x, y, r, g, b);
             }
         }
     }
@@ -632,9 +639,7 @@ void init()
 
   for (int i = 0; i < WIDTH; i++)
   {
-
       all_rays[i].resize(HEIGHT);
-
   }
 
   //define the four corners
@@ -644,10 +649,17 @@ void init()
   double y_max = tangentValue;
   double y_min = -1 * tangentValue;
 
-  all_rays[0][0] = Ray(0, 0, 0, x_min, y_min, -1);
+  /*
+    all_rays[0][0] = Ray(0, 0, 0, x_min, y_min, -1);
   all_rays[WIDTH - 1][0] = Ray(0, 0, 0, x_max, y_min, -1);
   all_rays[0][HEIGHT - 1] = Ray(0, 0, 0, x_min, y_max, -1);
   all_rays[WIDTH - 1][HEIGHT - 1] = Ray(0, 0, 0, x_max, y_max, -1);
+  */
+
+  all_rays[0][0].Set_Ray(zero_vector, glm::dvec3(x_min, y_min, -1.0f));
+  all_rays[WIDTH - 1][0].Set_Ray(zero_vector, glm::dvec3(x_max, y_min, -1.0f));
+  all_rays[0][HEIGHT - 1].Set_Ray(zero_vector, glm::dvec3(x_min, y_max, -1.0f));
+  all_rays[WIDTH - 1][HEIGHT - 1].Set_Ray(zero_vector, glm::vec3(x_max, y_max, -1.0f));
 
   //set up increment values
   deltaX = (x_max - x_min) / WIDTH;
@@ -655,10 +667,11 @@ void init()
 
   double x_count = x_min;
   double y_count = y_min;
+
   //create the remaining rays
   for (int i = 0; i < WIDTH; i++) {
       for (int j = 0; j < HEIGHT; j++) {
-          all_rays[i][j] = Ray(0, 0, 0, x_min + i * deltaX, y_min + j * deltaY, -1);
+          all_rays[i][j].Set_Ray(zero_vector, glm::dvec3(x_min + i * deltaX, y_min + j * deltaY, -1));
           y_count += deltaY;
       }
       y_count = y_min;
