@@ -38,7 +38,7 @@ using namespace glm;
 #define MAX_SPHERES 100
 #define MAX_LIGHTS 100
 
-#define PI 3.14159265
+#define M_PI acos(-1.0)
 
 char * filename = NULL;
 
@@ -49,13 +49,13 @@ char * filename = NULL;
 int mode = MODE_DISPLAY;
 
 //you may want to make these smaller for debugging purposes
-#define WIDTH 640
-#define HEIGHT 480
+#define WIDTH 320
+#define HEIGHT 240
 
 //the field of view of the camera
 #define fov 60.0
 
-const double aspect_ratio = (double)WIDTH / HEIGHT;
+const float aspect_ratio = (float)WIDTH / HEIGHT;
 
 unsigned char buffer[HEIGHT][WIDTH][3];
 
@@ -136,14 +136,17 @@ struct Ray {
 
 //Ray** rays;
 
-std::vector<std::vector<Ray>> rays;
+std::vector<std::vector<Ray>> all_rays;
 
+/*
 double square(double num) {
     return num * num;
 }
+*/
+
 
 double distanceSquared(dvec3 start, dvec3 end) {
-    return square(start.x - end.x) + square(start.y - end.y) + square(start.z - end.z);
+    return pow((start.x - end.x),2) + pow((start.y - end.y),2) + pow((start.z - end.z),2);
 }
 
 double quadraticMinimum(double a, double b, double c) {
@@ -244,7 +247,7 @@ void calculateRaySphereIntersection(Ray& ray, int num) {
             double z0 = ray.origin.z;
 
             double b = 2 * (xd * (x0 - xc) + yd * (y0 - yc) + zd * (z0 - zc));
-            double c = square(x0 - xc) + square(y0 - yc) + square(z0 - zc) - square(radius);
+            double c = pow((x0 - xc),2) + pow((y0 - yc),2) + pow((z0 - zc),2) - pow(radius,2);
             double result = quadraticMinimum(1, b, c);
             if (result > 0) {
                 if (ray.closestObject.objectNum == -1 || ray.closestObject.tvalue > result) {
@@ -433,20 +436,20 @@ void draw_scene()
 
         for (unsigned int y = 0; y < HEIGHT; y++)
         {
-            calculateRayTriangleIntersection(rays[x][y], -1);
-            calculateRaySphereIntersection(rays[x][y], -1);
-            calculateShadowRay(rays[x][y]);
+            calculateRayTriangleIntersection(all_rays[x][y], -1);
+            calculateRaySphereIntersection(all_rays[x][y], -1);
+            calculateShadowRay(all_rays[x][y]);
 
             //if you can't find the intersection, plot a white color
-            if (rays[x][y].closestObject.objectNum == -1) {
+            if (all_rays[x][y].closestObject.objectNum == -1) {
                 plot_pixel(x, y, 255, 255, 255);
             }
 
             //plot the actual color of the ray intersection
             else {
-                double red = clamp(rays[x][y].color.x + 255 * ambient_light[0], 0, 255);
-                double green = clamp(rays[x][y].color.y + 255 * ambient_light[1], 0, 255);
-                double blue = clamp(rays[x][y].color.z + 255 * ambient_light[2], 0, 255);
+                double red = clamp(all_rays[x][y].color.x + 255 * ambient_light[0], 0, 255);
+                double green = clamp(all_rays[x][y].color.y + 255 * ambient_light[1], 0, 255);
+                double blue = clamp(all_rays[x][y].color.z + 255 * ambient_light[2], 0, 255);
 
                 plot_pixel(x, y, red, green, blue);
             }
@@ -623,26 +626,28 @@ void init()
       rays[i] = new Ray[HEIGHT];
   }
   */
-  rays.resize(WIDTH);
+
+  //initialize the rays
+  all_rays.resize(WIDTH);
 
   for (int i = 0; i < WIDTH; i++)
   {
 
-     rays[i].resize(HEIGHT);
+      all_rays[i].resize(HEIGHT);
 
   }
 
   //define the four corners
-  double tangentValue = tan(fov * PI / 180.0 / 2);
+  double tangentValue = tan(fov * M_PI / 180.0 / 2);
   double x_max = aspect_ratio * tangentValue;
   double x_min = -1 * aspect_ratio * tangentValue;
   double y_max = tangentValue;
   double y_min = -1 * tangentValue;
 
-  rays[0][0] = Ray(0, 0, 0, x_min, y_min, -1);
-  rays[WIDTH - 1][0] = Ray(0, 0, 0, x_max, y_min, -1);
-  rays[0][HEIGHT - 1] = Ray(0, 0, 0, x_min, y_max, -1);
-  rays[WIDTH - 1][HEIGHT - 1] = Ray(0, 0, 0, x_max, y_max, -1);
+  all_rays[0][0] = Ray(0, 0, 0, x_min, y_min, -1);
+  all_rays[WIDTH - 1][0] = Ray(0, 0, 0, x_max, y_min, -1);
+  all_rays[0][HEIGHT - 1] = Ray(0, 0, 0, x_min, y_max, -1);
+  all_rays[WIDTH - 1][HEIGHT - 1] = Ray(0, 0, 0, x_max, y_max, -1);
 
   //set up increment values
   deltaX = (x_max - x_min) / WIDTH;
@@ -653,7 +658,7 @@ void init()
   //create the remaining rays
   for (int i = 0; i < WIDTH; i++) {
       for (int j = 0; j < HEIGHT; j++) {
-          rays[i][j] = Ray(0, 0, 0, x_min + i * deltaX, y_min + j * deltaY, -1);
+          all_rays[i][j] = Ray(0, 0, 0, x_min + i * deltaX, y_min + j * deltaY, -1);
           y_count += deltaY;
       }
       y_count = y_min;
