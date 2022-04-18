@@ -55,11 +55,7 @@ int mode = MODE_DISPLAY;
 //the field of view of the camera
 #define fov 60.0
 
-const float aspect_ratio = (float)WIDTH / HEIGHT;
-
-glm::vec3 zero_vector = { 0.0f, 0.0f, 0.0f };
-
-unsigned char buffer[HEIGHT][WIDTH][3];
+glm::dvec3 zero_vector = { 0.0, 0.0, 0.0 };
 
 struct Vertex
 {
@@ -82,11 +78,6 @@ struct Sphere
   double color_specular[3];
   double shininess;
   double radius;
-
-  glm::vec3 calculateUnitNormal(glm::vec3 point) {
-      glm::vec3 center = glm::vec3(position[0], position[1], position[2]);
-      return normalize(point - center);
-  }
 };
 
 struct Light
@@ -105,61 +96,33 @@ struct SceneObj {
 
 struct Ray {
 
-    glm::dvec3 origin;
-    glm::dvec3 direction;
-
-    SceneObj obj_intersected;
-    glm::vec3 ray_color;
-
-    Ray() {}; //default constructor
-    //pass in points individually
+    Ray(): ray_color(zero_vector) {}; 
     
-    /*
-        Ray(double ox, double oy, double oz, double dx, double dy, double dz) {
-        origin.x = ox;
-        origin.y = oy;
-        origin.z = oz;
-        direction.x = dx;
-        direction.y = dy;
-        direction.z = dz;
-        direction = glm::normalize(direction);
-        color.x = 0;
-        color.y = 0;
-        color.z = 0;
-    };
-    */
-    //pass in points by vec3's
     Ray(glm::dvec3 in_orig, glm::dvec3 in_dir)
     {
         origin = in_orig;
-        direction = in_dir;
-        direction = glm::normalize(direction);
+        direction = glm::normalize(in_dir);
         ray_color = zero_vector;
     }
 
     void Set_Ray(glm::dvec3 origin_set, glm::dvec3 dir_set) 
     {
         origin = origin_set;
-        direction = dir_set;
-        direction = glm::normalize(direction);
-        ray_color = zero_vector;
+        direction = glm::normalize(dir_set);
     }
-};
 
-//Ray** rays;
+    glm::dvec3 origin;
+    glm::dvec3 direction;
+
+    SceneObj obj_intersected;
+    glm::vec3 ray_color;
+};
 
 std::vector<std::vector<Ray>> all_rays;
 
-/*
-double square(double num) {
-    return num * num;
-}
-*/
+const float aspect_ratio = (float)WIDTH / HEIGHT;
 
-
-double distanceSquared(dvec3 start, dvec3 end) {
-    return pow((start.x - end.x),2) + pow((start.y - end.y),2) + pow((start.z - end.z),2);
-}
+unsigned char buffer[HEIGHT][WIDTH][3];
 
 double quadraticMinimum(double a, double b, double c) {
     double t0 = (-b + sqrt(b * b - 4 * a * c)) / 2;
@@ -187,6 +150,14 @@ double quadraticMinimum(double a, double b, double c) {
         }
     }
 }
+
+/*
+glm::vec3 calculateUnitNormal(glm::vec3 point) {
+    glm::vec3 center = glm::vec3(position[0], position[1], position[2]);
+    return normalize(point - center);
+}
+*/
+
 
 dvec3 toVec3(double* array) {
     dvec3 result;
@@ -352,8 +323,15 @@ void calculateShadowRay(Ray& ray) {
             //Check if shadow ray intersection, if it exists, is behind the light or not
             if (shadowRay.obj_intersected.obj_num != -1) {
 
-                double distanceFromPointToIntersection = distanceSquared(ray.obj_intersected.intersect_point, shadowRay.obj_intersected.intersect_point);
-                double distanceFromPointToLight = distanceSquared(ray.obj_intersected.intersect_point, dvec3(light.position[0], light.position[1], light.position[2]));
+                //calculate the vector bewteen the intersection point
+                glm::dvec3 distance = ray.obj_intersected.intersect_point - shadowRay.obj_intersected.intersect_point;
+                double distanceFromPointToIntersection = dot(distance, distance);
+
+                //calculate the vectore between the intersection and the light
+                distance = dvec3(light.position[0], light.position[1], light.position[2]) - ray.obj_intersected.intersect_point;
+
+                double distanceFromPointToLight = dot(distance, distance);
+
                 //if the point that the shadow ray intersects with is further than the light, don't consider it blocked
                 if (distanceFromPointToIntersection > distanceFromPointToLight) {
                     shadowRay.obj_intersected.obj_num = -1;
@@ -373,7 +351,11 @@ void calculateShadowRay(Ray& ray) {
                 //Calculate lighting for Spheres
                 if (ray.obj_intersected.obj_type == "SPHERE") {
                     Sphere s = spheres[ray.obj_intersected.obj_num];
-                    n = s.calculateUnitNormal(ray.obj_intersected.intersect_point);
+
+                    //calculate the normal using the vector [from the centery to the intersection] divided by the sphere's radius
+                    n = (ray.obj_intersected.intersect_point - glm::dvec3(s.position[0], s.position[1], s.position[2])) / s.radius;
+
+                    //n = s.calculateUnitNormal(ray.obj_intersected.intersect_point);
 
                     kd = dvec3(s.color_diffuse[0], s.color_diffuse[1], s.color_diffuse[2]);
                     ks = dvec3(s.color_specular[0], s.color_specular[1], s.color_specular[2]);
@@ -402,14 +384,15 @@ void calculateShadowRay(Ray& ray) {
 
 
                 //kd(l*n) + ks(r*v)^a
-                double red = L.x * (kd.x * (ln)+ks.x * pow(rv, alpha)) * 255;
+                /*
+                                double red = L.x * (kd.x * (ln)+ks.x * pow(rv, alpha)) * 255;
                 double green = L.y * (kd.y * (ln)+ks.y * pow(rv, alpha)) * 255;
                 double blue = L.z * (kd.z * (ln)+ks.z * pow(rv, alpha)) * 255;
+                */
 
-                ray.ray_color.r += red;
-                ray.ray_color.g += green;
-                ray.ray_color.b += blue;
-
+                ray.ray_color.r += L.x * (kd.x * (ln)+ks.x * pow(rv, alpha)) * 255;
+                ray.ray_color.g += L.y * (kd.y * (ln)+ks.y * pow(rv, alpha)) * 255;
+                ray.ray_color.b += L.z * (kd.z * (ln)+ks.z * pow(rv, alpha)) * 255;
             }
         }
     }
