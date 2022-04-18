@@ -49,8 +49,8 @@ char * filename = NULL;
 int mode = MODE_DISPLAY;
 
 //you may want to make these smaller for debugging purposes
-#define WIDTH 320
-#define HEIGHT 240
+#define WIDTH 160
+#define HEIGHT 120
 
 //the field of view of the camera
 #define fov 60.0
