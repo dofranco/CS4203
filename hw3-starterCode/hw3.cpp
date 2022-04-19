@@ -86,34 +86,23 @@ struct Light
   double color[3];
 };
 
-struct SceneObj {
-    SceneObj() : obj_num(-1) {};
-    std::string obj_type;
-    int obj_num;
-    double obj_val;
-    glm::dvec3 intersect_point;
-};
-
-struct SceneObj1 {
-    Triangle* tri_intersect;
-    Sphere* sph_intersect;
-
-    double t_val;
-    glm::dvec3 intersect_point;
-};
-
 struct Ray {
 
-    Ray(): ray_color(zero_vector) {}; 
+    Ray() : ray_color(zero_vector),
+        tri_intersect(nullptr),
+        sph_intersect(nullptr),
+        intersect_point( -1, -1, -1 ),
+        t_val(0) 
+    {};
     
     Ray(glm::dvec3 in_orig, glm::dvec3 in_dir)
     {
         ray_origin = in_orig;
         ray_direction = glm::normalize(in_dir);
         ray_color = zero_vector;
-        obj1_interesected.tri_intersect = nullptr;
-        obj1_interesected.sph_intersect = nullptr;
-        obj1_interesected.intersect_point = { -1, -1, -1 };
+        tri_intersect = nullptr;
+        sph_intersect = nullptr;
+        intersect_point = { -1, -1, -1 };
     }
 
     void Set_Ray(glm::dvec3 origin_set, glm::dvec3 dir_set) 
@@ -124,17 +113,18 @@ struct Ray {
 
     glm::dvec3 ray_origin;
     glm::dvec3 ray_direction;
+    glm::dvec3 intersect_point;
+    glm::dvec3 ray_color;
 
-    SceneObj obj_intersected;
+    Triangle* tri_intersect;
+    Sphere* sph_intersect;
 
-    SceneObj1 obj1_interesected;
-
-    glm::vec3 ray_color;
+    double t_val;
 };
 
 std::vector<std::vector<Ray>> all_rays;
 
-const float aspect_ratio = (float)WIDTH / HEIGHT;
+const float aspect_ratio = static_cast<float>(WIDTH) / HEIGHT;
 
 unsigned char buffer[HEIGHT][WIDTH][3];
 
@@ -168,11 +158,6 @@ double quadraticMinimum(double a, double b, double c) {
 void Arr2Vec(const double double_arr[], glm::dvec3& vec) 
 {
     vec = glm::dvec3(double_arr[0], double_arr[1], double_arr[2]);
-}
-
-//taken from GLM website
-double clamp(double x, double minVal, double maxVal) {
-    return std::min(std::max(x, minVal), maxVal);
 }
 
 //The amount to increment the pixels X and Y values for the rays
@@ -212,69 +197,52 @@ glm::dvec3 calcBarycentric(glm::dvec3 point, glm::dvec3 a, glm::dvec3 b, glm::dv
     return vec_result;
 }
 
-void calculateRaySphereIntersection(Ray& ray, int num) {
+void calculateRaySphereIntersection(Ray& ray, Sphere* sphere) {
     for (int i = 0; i < num_spheres; i++) {
-        if (i != num) {
+        if (&spheres[i] != sphere) {
             Sphere* this_sphere = &spheres[i];
 
-            double radius = spheres[i].radius;
-            double xc = spheres[i].position[0];
-            double yc = spheres[i].position[1];
-            double zc = spheres[i].position[2];
+            glm::dvec3 sphere_pos;
 
-            double radius2 = this_sphere->radius;
-            double xc2 = this_sphere->position[0];
-            double yc2 = this_sphere->position[1];
-            double zc2 = this_sphere->position[2];
+            double radius = this_sphere->radius;
+            Arr2Vec(this_sphere->position, sphere_pos);
 
-            double xd = ray.ray_direction.x;
-            double yd = ray.ray_direction.y;
-            double zd = ray.ray_direction.z;
+            double b = 2 * (ray.ray_direction.x * (ray.ray_origin.x - sphere_pos.x) + ray.ray_direction.y * (ray.ray_origin.y - sphere_pos.y) + ray.ray_direction.z * (ray.ray_origin.z - sphere_pos.z));
+            double c = pow((ray.ray_origin.x - sphere_pos.x),2) + pow((ray.ray_origin.y - sphere_pos.y),2) + pow((ray.ray_origin.z - sphere_pos.z),2) - pow(radius,2);
 
-            double x0 = ray.ray_origin.x;
-            double y0 = ray.ray_origin.y;
-            double z0 = ray.ray_origin.z;
-
-            double b = 2 * (xd * (x0 - xc) + yd * (y0 - yc) + zd * (z0 - zc));
-            double c = pow((x0 - xc),2) + pow((y0 - yc),2) + pow((z0 - zc),2) - pow(radius,2);
             double result = quadraticMinimum(1, b, c);
-            if (result > 0) {
-                if (ray.obj_intersected.obj_num == -1 || ray.obj_intersected.obj_val > result) {
-                    SceneObj this_obj;
-                    this_obj.obj_type = "SPHERE";
-                    this_obj.obj_num = i;
-                    this_obj.obj_val = result;
-                    this_obj.intersect_point = ray.ray_origin + result * ray.ray_direction;
-                    ray.obj_intersected = this_obj;
 
-                    ray.obj1_interesected.sph_intersect = this_sphere;
-                    ray.obj1_interesected.t_val = result;
-                    ray.obj1_interesected.intersect_point = ray.ray_origin + result * ray.ray_direction;
+            if (result > 0) {
+                if (ray.sph_intersect == nullptr || ray.t_val > result) {
+
+                    ray.sph_intersect = this_sphere;
+                    ray.t_val = result;
+                    ray.intersect_point = ray.ray_origin + result * ray.ray_direction;
                 }
             }
         }
     }
 }
 
-void calculateRayTriangleIntersection(Ray& ray, int num) {
+void calculateRayTriangleIntersection(Ray& ray, Triangle* triangle) {
     for (int i = 0; i < num_triangles; i++) {
-        if (i != num) {
-            Triangle triangle = triangles[i];
-
+        if (&triangles[i] != triangle) {
             Triangle* this_triangle = &triangles[i];
 
-            glm::dvec3 pointA = glm::dvec3(triangle.v[0].position[0], triangle.v[0].position[1], triangle.v[0].position[2]);
-            glm::dvec3 pointB = glm::dvec3(triangle.v[1].position[0], triangle.v[1].position[1], triangle.v[1].position[2]);
-            glm::dvec3 pointC = glm::dvec3(triangle.v[2].position[0], triangle.v[2].position[1], triangle.v[2].position[2]);
+            glm::dvec3 pointA, pointB, pointC;
 
-            glm::dvec3 n = cross((pointB - pointA), (pointC - pointA));
-            n = normalize(n);
+            Arr2Vec(this_triangle->v[0].position,pointA);
+            Arr2Vec(this_triangle->v[1].position, pointB);
+            Arr2Vec(this_triangle->v[2].position, pointC);
+
+            glm::dvec3 n = normalize(cross((pointB - pointA), (pointC - pointA)));
+
             if (dot(n, ray.ray_direction) != 0) {
 
                 double t = dot(n, pointA - ray.ray_origin) / (dot(n, ray.ray_direction));
 
                 if (t > 0) {
-                    if (ray.obj_intersected.obj_num == -1 || ray.obj_intersected.obj_val > t) {
+                    if (ray.tri_intersect == nullptr || ray.t_val > t) {
                         // Check if the intersection point is inside the triangle.       
                         glm::dvec3 v0 = pointC - pointA;
                         glm::dvec3 v1 = pointB - pointA;
@@ -294,18 +262,9 @@ void calculateRayTriangleIntersection(Ray& ray, int num) {
 
                         // Check if point is in triangle
                         if ((u >= 0) && (v >= 0) && (u + v < 1)) {
-
-                            SceneObj this_obj;
-                            this_obj.obj_type = "TRIANGLE";
-                            this_obj.obj_num = i;
-                            this_obj.obj_val = t;
-                            this_obj.intersect_point = ray.ray_origin + t * ray.ray_direction;
-                            ray.obj_intersected = this_obj;
-
-                            ray.obj1_interesected.tri_intersect = &triangle;
-                            ray.obj1_interesected.t_val = t;
-                            ray.obj1_interesected.intersect_point = ray.ray_origin + t * ray.ray_direction;
-
+                            ray.tri_intersect = this_triangle;
+                            ray.t_val = t;
+                            ray.intersect_point = ray.ray_origin + t * ray.ray_direction;
                         }
                     }
                 }
@@ -314,56 +273,53 @@ void calculateRayTriangleIntersection(Ray& ray, int num) {
     }
 }
 
-/**
- * Fire a shadow ray, and then calculate the color using Phong illumination model if there is no intersection
- * If the shadow ray is obstructed, then return black
- *
- *
- *
- */
+
 void calculateShadowRay(Ray& ray) {
     //Fire a shadow ray first for each light source
     for (int i = 0; i < num_lights; i++) {
         Light light = lights[i];
 
         //If the ray actually intersected with something, fire the shadow ray
-        if (ray.obj_intersected.obj_num != -1) {
+        if (ray.sph_intersect != nullptr || ray.tri_intersect != nullptr) {
             glm::dvec3 lightVec;
             Arr2Vec(light.position, lightVec);
 
-            lightVec -= ray.obj_intersected.intersect_point;
+            lightVec -= ray.intersect_point;
             lightVec = normalize(lightVec);
-            Ray shadowRay = Ray(ray.obj_intersected.intersect_point, lightVec);
+            Ray shadowRay = Ray(ray.intersect_point, lightVec);
 
-            if (ray.obj_intersected.obj_type == "SPHERE") {
-                calculateRaySphereIntersection(shadowRay, ray.obj_intersected.obj_num);
-                calculateRayTriangleIntersection(shadowRay, -1);
+            if (ray.sph_intersect != nullptr) {
+                calculateRaySphereIntersection(shadowRay, ray.sph_intersect);
+                calculateRayTriangleIntersection(shadowRay, nullptr);
             }
             else {
-                calculateRayTriangleIntersection(shadowRay, ray.obj_intersected.obj_num);
-                calculateRaySphereIntersection(shadowRay, -1);
+                calculateRayTriangleIntersection(shadowRay, ray.tri_intersect);
+                calculateRaySphereIntersection(shadowRay, nullptr);
             }
 
             //Check if shadow ray intersection, if it exists, is behind the light or not
-            if (shadowRay.obj_intersected.obj_num != -1) {
+            if (shadowRay.sph_intersect != nullptr || shadowRay.tri_intersect != nullptr) 
+            {
 
                 //calculate the vector bewteen the intersection point
-                glm::dvec3 distance = ray.obj_intersected.intersect_point - shadowRay.obj_intersected.intersect_point;
+                glm::dvec3 distance = ray.intersect_point - shadowRay.intersect_point;
                 double distanceFromPointToIntersection = dot(distance, distance);
 
                 //calculate the vectore between the intersection and the light
-                distance = glm::dvec3(light.position[0], light.position[1], light.position[2]) - ray.obj_intersected.intersect_point;
+                distance = glm::dvec3(light.position[0], light.position[1], light.position[2]) - ray.intersect_point;
 
                 double distanceFromPointToLight = dot(distance, distance);
 
                 //if the point that the shadow ray intersects with is further than the light, don't consider it blocked
                 if (distanceFromPointToIntersection > distanceFromPointToLight) {
-                    shadowRay.obj_intersected.obj_num = -1;
+                    shadowRay.sph_intersect = nullptr;
+                    shadowRay.tri_intersect = nullptr;
                 }
             }
 
             //if there is no intersection, calculate color using Phong Illumination model with respect to that light
-            if (shadowRay.obj_intersected.obj_num == -1) {
+            if (shadowRay.sph_intersect == nullptr && shadowRay.tri_intersect == nullptr) 
+            {
                 glm::dvec3 kd, ks;
                 double alpha = 0.0f; //diffuse, specular, and alpha (shininess)
 
@@ -374,11 +330,11 @@ void calculateShadowRay(Ray& ray) {
                 l = normalize(shadowRay.ray_direction);
 
                 //Calculate lighting for Spheres
-                if (ray.obj_intersected.obj_type == "SPHERE") {
-                    Sphere s = spheres[ray.obj_intersected.obj_num];
+                if (ray.sph_intersect != nullptr) {
+                    Sphere s = *ray.sph_intersect;
 
                     //calculate the normal using the vector [from the centery to the intersection] divided by the sphere's radius
-                    n = (ray.obj_intersected.intersect_point - glm::dvec3(s.position[0], s.position[1], s.position[2])) / s.radius;
+                    n = (ray.intersect_point - glm::dvec3(s.position[0], s.position[1], s.position[2])) / s.radius;
 
                     kd = glm::dvec3(s.color_diffuse[0], s.color_diffuse[1], s.color_diffuse[2]);
                     ks = glm::dvec3(s.color_specular[0], s.color_specular[1], s.color_specular[2]);
@@ -387,8 +343,8 @@ void calculateShadowRay(Ray& ray) {
                 }
 
                 //Calculate lighting for triangles
-                else if (ray.obj_intersected.obj_type == "TRIANGLE") {
-                    Triangle t = triangles[ray.obj_intersected.obj_num];
+                else if (ray.tri_intersect != nullptr) {
+                    Triangle t = *ray.tri_intersect;
                     Vertex a = t.v[0], b = t.v[1], c = t.v[2];
                     glm::dvec3 a_vert, b_vert, c_vert, a_norm, b_norm, c_norm, a_diff, b_diff, c_diff, a_spec, b_spec, c_spec;
                     Arr2Vec(a.position, a_vert);
@@ -404,7 +360,7 @@ void calculateShadowRay(Ray& ray) {
                     Arr2Vec(b.color_specular, b_spec);
                     Arr2Vec(c.color_specular, c_spec);
 
-                    glm::dvec3 bary = calcBarycentric(ray.obj_intersected.intersect_point, a_vert, b_vert, c_vert);//toVec3(a.position), toVec3(b.position), toVec3(c.position));
+                    glm::dvec3 bary = calcBarycentric(ray.intersect_point, a_vert, b_vert, c_vert);
                     n = normalize(a_norm * bary.x + b_norm * bary.y + c_norm * bary.z);
 
                     kd = a_diff * bary.x + b_diff * bary.y + c_diff * bary.z;
@@ -455,20 +411,20 @@ void draw_scene()
 
         for (unsigned int y = 0; y < HEIGHT; y++)
         {
-            calculateRayTriangleIntersection(all_rays[x][y], -1);
-            calculateRaySphereIntersection(all_rays[x][y], -1);
+            calculateRayTriangleIntersection(all_rays[x][y], nullptr);
+            calculateRaySphereIntersection(all_rays[x][y], nullptr);
             calculateShadowRay(all_rays[x][y]);
 
             //if you can't find the intersection, plot a white color
-            if (all_rays[x][y].obj_intersected.obj_num == -1) {
+            if (all_rays[x][y].sph_intersect == nullptr && all_rays[x][y].tri_intersect == nullptr) {
                 plot_pixel(x, y, 1.0f * 255, 1.0f * 255, 1.0f * 255);
             }
 
-            //plot the actual color of the ray intersection
+            //clamp to 0 or 255 before actually plotting the color
             else {
-                double r = clamp(all_rays[x][y].ray_color.r + 255 * ambient_light[0], 0, 255);
-                double g = clamp(all_rays[x][y].ray_color.g + 255 * ambient_light[1], 0, 255);
-                double b = clamp(all_rays[x][y].ray_color.b + 255 * ambient_light[2], 0, 255);
+                double r = std::min(std::max(all_rays[x][y].ray_color.r + 255 * ambient_light[0], 0.0), 255.0);
+                double g = std::min(std::max(all_rays[x][y].ray_color.g + 255 * ambient_light[0], 0.0), 255.0);
+                double b = std::min(std::max(all_rays[x][y].ray_color.b + 255 * ambient_light[0], 0.0), 255.0);
 
                 plot_pixel(x, y, r, g, b);
             }
@@ -737,3 +693,216 @@ int main(int argc, char ** argv)
   glutMainLoop();
 }
 
+/*
+
+void calculateRaySphereIntersection(Ray& ray, int num) {
+    for (int i = 0; i < num_spheres; i++) {
+        if (i != num) {
+            Sphere* this_sphere = &spheres[i];
+
+            double radius = spheres[i].radius;
+            double xc = spheres[i].position[0];
+            double yc = spheres[i].position[1];
+            double zc = spheres[i].position[2];
+
+            double radius2 = this_sphere->radius;
+            double xc2 = this_sphere->position[0];
+            double yc2 = this_sphere->position[1];
+            double zc2 = this_sphere->position[2];
+
+            double xd = ray.ray_direction.x;
+            double yd = ray.ray_direction.y;
+            double zd = ray.ray_direction.z;
+
+            double x0 = ray.ray_origin.x;
+            double y0 = ray.ray_origin.y;
+            double z0 = ray.ray_origin.z;
+
+            double b = 2 * (xd * (x0 - xc) + yd * (y0 - yc) + zd * (z0 - zc));
+            double c = pow((x0 - xc),2) + pow((y0 - yc),2) + pow((z0 - zc),2) - pow(radius,2);
+            double result = quadraticMinimum(1, b, c);
+            if (result > 0) {
+                if (ray.obj_intersected.obj_num == -1 || ray.obj_intersected.obj_val > result) {
+                    SceneObj this_obj;
+                    this_obj.obj_type = "SPHERE";
+                    this_obj.obj_num = i;
+                    this_obj.obj_val = result;
+                    this_obj.intersect_point = ray.ray_origin + result * ray.ray_direction;
+                    ray.obj_intersected = this_obj;
+
+                    ray.sph_intersect = this_sphere;
+                    ray.t_val = result;
+                    ray.intersect_point = ray.ray_origin + result * ray.ray_direction;
+                }
+            }
+        }
+    }
+}
+
+void calculateRayTriangleIntersection(Ray& ray, int num) {
+    for (int i = 0; i < num_triangles; i++) {
+        if (i != num) {
+            Triangle triangle = triangles[i];
+
+            Triangle* this_triangle = &triangles[i];
+
+            glm::dvec3 pointA = glm::dvec3(triangle.v[0].position[0], triangle.v[0].position[1], triangle.v[0].position[2]);
+            glm::dvec3 pointB = glm::dvec3(triangle.v[1].position[0], triangle.v[1].position[1], triangle.v[1].position[2]);
+            glm::dvec3 pointC = glm::dvec3(triangle.v[2].position[0], triangle.v[2].position[1], triangle.v[2].position[2]);
+
+            glm::dvec3 n = cross((pointB - pointA), (pointC - pointA));
+            n = normalize(n);
+            if (dot(n, ray.ray_direction) != 0) {
+
+                double t = dot(n, pointA - ray.ray_origin) / (dot(n, ray.ray_direction));
+
+                if (t > 0) {
+                    if (ray.obj_intersected.obj_num == -1 || ray.obj_intersected.obj_val > t) {
+                        // Check if the intersection point is inside the triangle.
+                        glm::dvec3 v0 = pointC - pointA;
+                        glm::dvec3 v1 = pointB - pointA;
+                        glm::dvec3 v2 = ray.ray_origin + t * ray.ray_direction - pointA;
+
+                        // Compute dot products
+                        double dot00 = dot(v0, v0);
+                        double dot01 = dot(v0, v1);
+                        double dot02 = dot(v0, v2);
+                        double dot11 = dot(v1, v1);
+                        double dot12 = dot(v1, v2);
+
+                        // Compute barycentric coordinates
+                        double denom = (dot00 * dot11 - dot01 * dot01);
+                        double u = (dot11 * dot02 - dot01 * dot12) / denom;
+                        double v = (dot00 * dot12 - dot01 * dot02) / denom;
+
+                        // Check if point is in triangle
+                        if ((u >= 0) && (v >= 0) && (u + v < 1)) {
+
+                            SceneObj this_obj;
+                            this_obj.obj_type = "TRIANGLE";
+                            this_obj.obj_num = i;
+                            this_obj.obj_val = t;
+                            this_obj.intersect_point = ray.ray_origin + t * ray.ray_direction;
+                            ray.obj_intersected = this_obj;
+
+                            ray.tri_intersect = &triangle;
+                            ray.t_val = t;
+                            ray.intersect_point = ray.ray_origin + t * ray.ray_direction;
+
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+void calculateShadowRay(Ray& ray) {
+    //Fire a shadow ray first for each light source
+    for (int i = 0; i < num_lights; i++) {
+        Light light = lights[i];
+
+        //If the ray actually intersected with something, fire the shadow ray
+        if (ray.obj_intersected.obj_num != -1) {
+            glm::dvec3 lightVec;
+            Arr2Vec(light.position, lightVec);
+
+            lightVec -= ray.obj_intersected.intersect_point;
+            lightVec = normalize(lightVec);
+            Ray shadowRay = Ray(ray.obj_intersected.intersect_point, lightVec);
+
+            if (ray.obj_intersected.obj_type == "SPHERE") {
+                calculateRaySphereIntersection(shadowRay, ray.obj_intersected.obj_num);
+                calculateRayTriangleIntersection(shadowRay, -1);
+            }
+            else {
+                calculateRayTriangleIntersection(shadowRay, ray.obj_intersected.obj_num);
+                calculateRaySphereIntersection(shadowRay, -1);
+            }
+
+            //Check if shadow ray intersection, if it exists, is behind the light or not
+            if (shadowRay.obj_intersected.obj_num != -1) {
+
+                //calculate the vector bewteen the intersection point
+                glm::dvec3 distance = ray.obj_intersected.intersect_point - shadowRay.obj_intersected.intersect_point;
+                double distanceFromPointToIntersection = dot(distance, distance);
+
+                //calculate the vectore between the intersection and the light
+                distance = glm::dvec3(light.position[0], light.position[1], light.position[2]) - ray.obj_intersected.intersect_point;
+
+                double distanceFromPointToLight = dot(distance, distance);
+
+                //if the point that the shadow ray intersects with is further than the light, don't consider it blocked
+                if (distanceFromPointToIntersection > distanceFromPointToLight) {
+                    shadowRay.obj_intersected.obj_num = -1;
+                }
+            }
+
+            //if there is no intersection, calculate color using Phong Illumination model with respect to that light
+            if (shadowRay.obj_intersected.obj_num == -1) {
+                glm::dvec3 kd, ks;
+                double alpha = 0.0f; //diffuse, specular, and alpha (shininess)
+
+                glm::dvec3 l, n, r, v, L; //Light vector, normal vector, reflect vector, vector to image plane, Light color
+                //L = toVec3(light.color);
+                Arr2Vec(light.color, L);
+                v = -ray.ray_direction;
+                l = normalize(shadowRay.ray_direction);
+
+                //Calculate lighting for Spheres
+                if (ray.obj_intersected.obj_type == "SPHERE") {
+                    Sphere s = spheres[ray.obj_intersected.obj_num];
+
+                    //calculate the normal using the vector [from the centery to the intersection] divided by the sphere's radius
+                    n = (ray.obj_intersected.intersect_point - glm::dvec3(s.position[0], s.position[1], s.position[2])) / s.radius;
+
+                    kd = glm::dvec3(s.color_diffuse[0], s.color_diffuse[1], s.color_diffuse[2]);
+                    ks = glm::dvec3(s.color_specular[0], s.color_specular[1], s.color_specular[2]);
+                    alpha = s.shininess;
+
+                }
+
+                //Calculate lighting for triangles
+                else if (ray.obj_intersected.obj_type == "TRIANGLE") {
+                    Triangle t = triangles[ray.obj_intersected.obj_num];
+                    Vertex a = t.v[0], b = t.v[1], c = t.v[2];
+                    glm::dvec3 a_vert, b_vert, c_vert, a_norm, b_norm, c_norm, a_diff, b_diff, c_diff, a_spec, b_spec, c_spec;
+                    Arr2Vec(a.position, a_vert);
+                    Arr2Vec(b.position, b_vert);
+                    Arr2Vec(c.position, c_vert);
+                    Arr2Vec(a.normal, a_norm);
+                    Arr2Vec(b.normal, b_norm);
+                    Arr2Vec(c.normal, c_norm);
+                    Arr2Vec(a.color_diffuse, a_diff);
+                    Arr2Vec(b.color_diffuse, b_diff);
+                    Arr2Vec(c.color_diffuse, c_diff);
+                    Arr2Vec(a.color_specular, a_spec);
+                    Arr2Vec(b.color_specular, b_spec);
+                    Arr2Vec(c.color_specular, c_spec);
+
+                    glm::dvec3 bary = calcBarycentric(ray.obj_intersected.intersect_point, a_vert, b_vert, c_vert);//toVec3(a.position), toVec3(b.position), toVec3(c.position));
+                    n = normalize(a_norm * bary.x + b_norm * bary.y + c_norm * bary.z);
+
+                    kd = a_diff * bary.x + b_diff * bary.y + c_diff * bary.z;
+                    ks = a_spec * bary.x + b_spec * bary.y + c_spec * bary.z;
+                    alpha = a.shininess * bary.x + b.shininess * bary.y + c.shininess * bary.z;
+                }
+
+                double ln = dot(l, n);
+                if (ln < 0) ln = 0;
+
+                r = 2 * (ln)*n - l;
+                double rv = dot(r, v);
+                if (rv < 0) rv = 0;
+
+                ray.ray_color.r += L.x * (kd.x * (ln)+ks.x * pow(rv, alpha)) * 255;
+                ray.ray_color.g += L.y * (kd.y * (ln)+ks.y * pow(rv, alpha)) * 255;
+                ray.ray_color.b += L.z * (kd.z * (ln)+ks.z * pow(rv, alpha)) * 255;
+            }
+        }
+    }
+}
+
+
+*/
