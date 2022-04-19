@@ -160,10 +160,6 @@ void Arr2Vec(const double double_arr[], glm::dvec3& vec)
     vec = glm::dvec3(double_arr[0], double_arr[1], double_arr[2]);
 }
 
-//The amount to increment the pixels X and Y values for the rays
-double deltaX, deltaY;
-int shadowsCount = 0, outerloop = 0, elseloop = 0;
-
 Triangle triangles[MAX_TRIANGLES];
 Sphere spheres[MAX_SPHERES];
 Light lights[MAX_LIGHTS];
@@ -218,6 +214,7 @@ void calculateRaySphereIntersection(Ray& ray, Sphere* sphere) {
                     ray.sph_intersect = this_sphere;
                     ray.t_val = result;
                     ray.intersect_point = ray.ray_origin + result * ray.ray_direction;
+
                 }
             }
         }
@@ -594,13 +591,7 @@ void init()
   glClearColor(0,0,0,0);
   glClear(GL_COLOR_BUFFER_BIT);
 
-  //Draw Rays
-  /*
-    rays = new Ray * [WIDTH];
-  for (int i = 0; i < WIDTH; i++) {
-      rays[i] = new Ray[HEIGHT];
-  }
-  */
+  double x_delta, y_delta;
 
   //initialize the rays
   all_rays.resize(WIDTH);
@@ -630,8 +621,8 @@ void init()
   all_rays[WIDTH - 1][HEIGHT - 1].Set_Ray(zero_vector, glm::vec3(x_max, y_max, -1.0f));
 
   //set up increment values
-  deltaX = (x_max - x_min) / WIDTH;
-  deltaY = (y_max - y_min) / HEIGHT;
+  x_delta = (x_max - x_min) / WIDTH;
+  y_delta = (y_max - y_min) / HEIGHT;
 
   double x_count = x_min;
   double y_count = y_min;
@@ -639,11 +630,11 @@ void init()
   //create the remaining rays
   for (int i = 0; i < WIDTH; i++) {
       for (int j = 0; j < HEIGHT; j++) {
-          all_rays[i][j].Set_Ray(zero_vector, glm::dvec3(x_min + i * deltaX, y_min + j * deltaY, -1));
-          y_count += deltaY;
+          all_rays[i][j].Set_Ray(zero_vector, glm::dvec3(x_min + i * x_delta, y_min + j * y_delta, -1.0f));
+          y_count += y_delta;
       }
       y_count = y_min;
-      x_count += deltaX;
+      x_count += x_delta;
   }
 
 }
