@@ -174,7 +174,7 @@ void plot_pixel_jpeg(int x,int y,unsigned char r,unsigned char g,unsigned char b
 void plot_pixel(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 
 
-glm::dvec3 calcBarycentric(glm::dvec3 point, glm::dvec3 a, glm::dvec3 b, glm::dvec3 c) {
+glm::dvec3 Barycentric(glm::dvec3 point, glm::dvec3 a, glm::dvec3 b, glm::dvec3 c) {
     glm::dvec3 v0 = b - a;
     glm::dvec3 v1 = c - a;
     glm::dvec3 v2 = point - a;
@@ -193,7 +193,7 @@ glm::dvec3 calcBarycentric(glm::dvec3 point, glm::dvec3 a, glm::dvec3 b, glm::dv
     return vec_result;
 }
 
-void calculateRaySphereIntersection(Ray& ray, Sphere* sphere) {
+void RayIntersectSwphere(const Sphere* sphere, Ray& ray) {
     for (int i = 0; i < num_spheres; i++) {
         if (&spheres[i] != sphere) {
             Sphere* this_sphere = &spheres[i];
@@ -221,7 +221,8 @@ void calculateRaySphereIntersection(Ray& ray, Sphere* sphere) {
     }
 }
 
-void calculateRayTriangleIntersection(Ray& ray, Triangle* triangle) {
+
+void RayIntersectTriangle(const Triangle* triangle, Ray& ray) {
     for (int i = 0; i < num_triangles; i++) {
         if (&triangles[i] != triangle) {
             Triangle* this_triangle = &triangles[i];
@@ -285,14 +286,19 @@ void calculateShadowRay(Ray& ray) {
             lightVec = normalize(lightVec);
             Ray shadowRay = Ray(ray.intersect_point, lightVec);
 
-            if (ray.sph_intersect != nullptr) {
-                calculateRaySphereIntersection(shadowRay, ray.sph_intersect);
+            /*
+                        if (ray.sph_intersect != nullptr) {
+                RayIntersectSwphere(ray.sph_intersect, shadowRay);
                 calculateRayTriangleIntersection(shadowRay, nullptr);
             }
             else {
                 calculateRayTriangleIntersection(shadowRay, ray.tri_intersect);
-                calculateRaySphereIntersection(shadowRay, nullptr);
+                RayIntersectSwphere(nullptr, shadowRay);
             }
+            */
+
+            RayIntersectSwphere(ray.sph_intersect, shadowRay);
+            RayIntersectTriangle(ray.tri_intersect, shadowRay);
 
             //Check if shadow ray intersection, if it exists, is behind the light or not
             if (shadowRay.sph_intersect != nullptr || shadowRay.tri_intersect != nullptr) 
@@ -357,7 +363,7 @@ void calculateShadowRay(Ray& ray) {
                     Arr2Vec(b.color_specular, b_spec);
                     Arr2Vec(c.color_specular, c_spec);
 
-                    glm::dvec3 bary = calcBarycentric(ray.intersect_point, a_vert, b_vert, c_vert);
+                    glm::dvec3 bary = Barycentric(ray.intersect_point, a_vert, b_vert, c_vert);
                     n = normalize(a_norm * bary.x + b_norm * bary.y + c_norm * bary.z);
 
                     kd = a_diff * bary.x + b_diff * bary.y + c_diff * bary.z;
@@ -408,8 +414,8 @@ void draw_scene()
 
         for (unsigned int y = 0; y < HEIGHT; y++)
         {
-            calculateRayTriangleIntersection(all_rays[x][y], nullptr);
-            calculateRaySphereIntersection(all_rays[x][y], nullptr);
+            RayIntersectTriangle(nullptr, all_rays[x][y]);
+            RayIntersectSwphere(nullptr, all_rays[x][y]);
             calculateShadowRay(all_rays[x][y]);
 
             //if you can't find the intersection, plot a white color
