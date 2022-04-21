@@ -216,30 +216,42 @@ void plot_pixel_jpeg(int x,int y,unsigned char r,unsigned char g,unsigned char b
 void plot_pixel(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 
 
-glm::dvec3 GetBaryVal(glm::dvec3 point, glm::dvec3 a, glm::dvec3 b, glm::dvec3 c) {
-    glm::dvec3 v0 = b - a;
-    glm::dvec3 v1 = c - a;
-    glm::dvec3 v2 = point - a;
+glm::dvec3 GetBarycentricVal(glm::dvec3 a_vert, glm::dvec3 b_vert, glm::dvec3 c_vert, glm::dvec3 curr_point)
+{
+    glm::dvec3 bary_c_val;
+    glm::dvec3 first_side = b_vert - a_vert;
+    glm::dvec3 second_side = c_vert - a_vert;
+    glm::dvec3 vec_to_point = curr_point - a_vert;
 
-    double d00 = dot(v0, v0);
-    double d01 = dot(v0, v1);
-    double d11 = dot(v1, v1);
-    double d20 = dot(v2, v0);
-    double d21 = dot(v2, v1);
+    double point_d_first = dot(vec_to_point, first_side);
+    double point_d_second = dot(vec_to_point, second_side);
+    double first_d_first = dot(first_side, first_side);
+    double first_d_sec = dot(first_side, second_side);
+    double second_d_second = dot(second_side, second_side);
 
-    double result = d00 * d11 - d01 * d01;
-    glm::dvec3 vec_result;
-    vec_result.y = (d11 * d20 - d01 * d21) / result; //alpha
-    vec_result.z = (d00 * d21 - d01 * d20) / result; //beta
-    vec_result.x = 1.0 - vec_result.z - vec_result.y; //gamma
-    return vec_result;
+    //get the dot calculation
+    double calc = first_d_first * second_d_second - first_d_sec * first_d_sec;
+
+    //get alpha
+    bary_c_val.y = (second_d_second * point_d_first - first_d_sec * point_d_second) / calc;
+
+    //get beta
+    bary_c_val.z = (first_d_first * point_d_second - first_d_sec * point_d_first) / calc;
+
+    //get gamma
+    bary_c_val.x = 1.0 - bary_c_val.z - bary_c_val.y;
+
+    return bary_c_val;
 }
 
 
 
-void RayIntersectSwphere(const Sphere* sphere, Ray& ray) {
-    for (int i = 0; i < num_spheres; i++) {
-        if (&spheres[i] != sphere) {
+void RayIntersectSwphere(const Sphere* sphere, Ray& ray) 
+{
+    for (int i = 0; i < num_spheres; i++) 
+    {
+        if (&spheres[i] != sphere) 
+        {
             Sphere* this_sphere = &spheres[i];
 
             glm::dvec3 sphere_pos;
@@ -252,8 +264,10 @@ void RayIntersectSwphere(const Sphere* sphere, Ray& ray) {
 
             double result = quadraticMinimum(1, b, c);
 
-            if (result > 0) {
-                if (ray.sph_intersect == nullptr || ray.t_val > result) {
+            if (result > 0) 
+            {
+                if (ray.sph_intersect == nullptr || ray.t_val > result) 
+                {
 
                     ray.sph_intersect = this_sphere;
                     ray.t_val = result;
@@ -273,33 +287,36 @@ void RayIntersectSwphere(const Sphere* sphere, Ray& ray) {
 /// </summary>
 /// <param name="triangle" a pointer to a triangle that the ray intersected with, if no intersection; nullptr></param>
 /// <param name="curr_ray" the ray to be calculated></param>
-void RayIntersectTriangle(const Triangle* triangle, Ray& curr_ray) {
+void RayIntersectTriangle(const Triangle* triangle, Ray& curr_ray) 
+{
     //loop through all thriangles...
     for (int i = 0; i < num_triangles; i++) 
     {
         //...ensuring not to check the trinagle the ray already intersected with
         // if no intersection, [triangle] will be nullptr
-        if (&triangles[i] != triangle) {
+        if (&triangles[i] != triangle) 
+        {
             Triangle* this_triangle = &triangles[i];
 
             //get any arbitrary vertex of a triangle
-            glm::dvec3 a_vertex;
+            glm::dvec3 arb;
 
-            Arr2Vec(this_triangle->v[0].position, a_vertex);
+            Arr2Vec(this_triangle->v[0].position, arb);
 
             //ensuring that there is no orthogonallity
             if (dot(this_triangle->tri_normal, curr_ray.ray_direction) != 0) 
             {
                 //getting a potential t value by dotting the triangles normal with a vector from an arbitrary point on the triangle
                 //and the origin of the ray, dividing it by the angle between the normal and the direction of the ray.
-                double new_t_val = dot(this_triangle->tri_normal, a_vertex - curr_ray.ray_origin) / (dot(this_triangle->tri_normal, curr_ray.ray_direction));
+                double new_t_val = dot(this_triangle->tri_normal, arb - curr_ray.ray_origin) / (dot(this_triangle->tri_normal, curr_ray.ray_direction));
 
                 //if the t is in "front" of the ray.
-                if (new_t_val > 0) {
+                if (new_t_val > 0) 
+                {
                     //if there is no current intersection or if this current t value is closer to the ray's origin
-                    if (curr_ray.tri_intersect == nullptr || curr_ray.t_val > new_t_val) 
+                    if (curr_ray.t_val > new_t_val || curr_ray.tri_intersect == nullptr)
                     {
-                        if(DoesRayIntersectTriangle(this_triangle, curr_ray.ray_origin + new_t_val * curr_ray.ray_direction - a_vertex))
+                        if(DoesRayIntersectTriangle(this_triangle, curr_ray.ray_origin + new_t_val * curr_ray.ray_direction - arb))
                         {
                             curr_ray.tri_intersect = this_triangle;
                             curr_ray.t_val = new_t_val;
@@ -318,9 +335,10 @@ void RayIntersectTriangle(const Triangle* triangle, Ray& curr_ray) {
 /// the ray
 /// </summary>
 /// <param name="curr_ray"></param>
-
 void GetShadowRay(Ray& curr_ray) {
-    for (int i = 0; i < num_lights; i++) {
+
+    for (int i = 0; i < num_lights; i++) 
+    {
         Light* curr_light = &lights[i];
 
         // shadow ray will only be cast when intersection took place
@@ -332,21 +350,24 @@ void GetShadowRay(Ray& curr_ray) {
             Arr2Vec(curr_light->position, light_pos);
             Arr2Vec(curr_light->position, light_reflect);
 
+            //get a vector from the point to the light
             light_reflect = light_reflect - curr_ray.intersect_point;
 
+            //normalize it
             light_reflect = normalize(light_reflect);
 
-            Ray shadowRay(curr_ray.intersect_point, light_reflect);
+            //create a shadow ray starting from the point of intersection heading towards the light
+            Ray curr_shadow(curr_ray.intersect_point, light_reflect);
 
-            RayIntersectSwphere(curr_ray.sph_intersect, shadowRay);
-            RayIntersectTriangle(curr_ray.tri_intersect, shadowRay);
+            RayIntersectSwphere(curr_ray.sph_intersect, curr_shadow);
+            RayIntersectTriangle(curr_ray.tri_intersect, curr_shadow);
 
             //Check if shadow ray intersection, if it exists, is behind the light or not
-            if (shadowRay.sph_intersect != nullptr || shadowRay.tri_intersect != nullptr) 
+            if (curr_shadow.sph_intersect != nullptr || curr_shadow.tri_intersect != nullptr)
             {
 
                 //calculate the vector bewteen the intersection point
-                glm::dvec3 distance = curr_ray.intersect_point - shadowRay.intersect_point;
+                glm::dvec3 distance = curr_ray.intersect_point - curr_shadow.intersect_point;
                 double distanceFromPointToIntersection = dot(distance, distance);
 
                 //calculate the vectore between the intersection and the light
@@ -355,33 +376,32 @@ void GetShadowRay(Ray& curr_ray) {
                 double distanceFromPointToLight = dot(distance, distance);
 
                 //if the point that the shadow ray intersects with is further than the light, don't consider it blocked
-                if (distanceFromPointToIntersection > distanceFromPointToLight) {
-                    shadowRay.sph_intersect = nullptr;
-                    shadowRay.tri_intersect = nullptr;
+                if (distanceFromPointToIntersection > distanceFromPointToLight) 
+                {
+                    curr_shadow.sph_intersect = nullptr;
+                    curr_shadow.tri_intersect = nullptr;
                 }
             }
 
             //else there is no interction and thus 
             // there must be phong lighting
-            if (shadowRay.sph_intersect == nullptr && shadowRay.tri_intersect == nullptr) 
+            if (curr_shadow.sph_intersect == nullptr && curr_shadow.tri_intersect == nullptr)
             {
-                glm::dvec3 kd, ks;
+                glm::dvec3 k_dif, k_spec, norm, reflect, image_plane, light_color, light_vec(curr_shadow.ray_direction);
 
-                double alpha = 0.0f; //diffuse, specular, and alpha (shininess)
+                double alpha = 0.0f;
 
-                glm::dvec3 l, n, r, v, L; //Light vector, normal vector, reflect vector, vector to image plane, Light color
+                Arr2Vec(curr_light->color, light_color);
 
-                Arr2Vec(curr_light->color, L);
-                v = -curr_ray.ray_direction;
-                l = normalize(shadowRay.ray_direction);
+                image_plane = -1.0 * curr_ray.ray_direction;
 
                 //sphere
                 if (curr_ray.sph_intersect != nullptr) 
                 {
-                    Arr2Vec(curr_ray.sph_intersect->color_diffuse, kd);
-                    Arr2Vec(curr_ray.sph_intersect->color_specular, ks);
+                    Arr2Vec(curr_ray.sph_intersect->color_diffuse, k_dif);
+                    Arr2Vec(curr_ray.sph_intersect->color_specular, k_spec);
 
-                    n = curr_ray.sph_intersect->GetNormal(curr_ray.intersect_point);
+                    norm = curr_ray.sph_intersect->GetNormal(curr_ray.intersect_point);
 
                     alpha = curr_ray.sph_intersect->shininess;
                 }
@@ -390,6 +410,7 @@ void GetShadowRay(Ray& curr_ray) {
                 else if (curr_ray.tri_intersect != nullptr) 
                 {
                     Triangle* triangle = curr_ray.tri_intersect;
+
                     Vertex vertices[3] = {triangle->v[0], triangle->v[1], triangle->v[2]};
 
                     glm::dvec3 a_vert, b_vert, c_vert, a_norm, b_norm, c_norm, a_diff, b_diff, c_diff, a_spec, b_spec, c_spec;
@@ -407,26 +428,26 @@ void GetShadowRay(Ray& curr_ray) {
                     Arr2Vec(vertices[1].color_specular, b_spec);
                     Arr2Vec(vertices[2].color_specular, c_spec);
 
-                    glm::dvec3 bary = GetBaryVal(curr_ray.intersect_point, a_vert, b_vert, c_vert);
+                    glm::dvec3 bary_c_val = GetBarycentricVal(a_vert, b_vert, c_vert, curr_ray.intersect_point);
 
-                    n = normalize(a_norm * bary.x + b_norm * bary.y + c_norm * bary.z);
+                    norm = normalize(a_norm * bary_c_val.x + b_norm * bary_c_val.y + c_norm * bary_c_val.z);
 
-                    kd = a_diff * bary.x + b_diff * bary.y + c_diff * bary.z;
-                    ks = a_spec * bary.x + b_spec * bary.y + c_spec * bary.z;
+                    k_dif = a_diff * bary_c_val.x + b_diff * bary_c_val.y + c_diff * bary_c_val.z;
+                    k_spec = a_spec * bary_c_val.x + b_spec * bary_c_val.y + c_spec * bary_c_val.z;
 
-                    alpha = vertices[0].shininess * bary.x + vertices[1].shininess * bary.y + vertices[2].shininess * bary.z;
+                    alpha = vertices[0].shininess * bary_c_val.x + vertices[1].shininess * bary_c_val.y + vertices[2].shininess * bary_c_val.z;
                 }
 
-                double ln = dot(l, n);
+                double ln = dot(light_vec, norm);
                 if (ln < 0) ln = 0;
 
-                r = 2 * (ln)*n - l;
-                double rv = dot(r, v);
+                reflect = 2 * (ln)*norm - light_vec;
+                double rv = dot(reflect, image_plane);
                 if (rv < 0) rv = 0;
 
-                curr_ray.ray_color.r += L.x * (kd.x * (ln)+ks.x * pow(rv, alpha)) * 255;
-                curr_ray.ray_color.g += L.y * (kd.y * (ln)+ks.y * pow(rv, alpha)) * 255;
-                curr_ray.ray_color.b += L.z * (kd.z * (ln)+ks.z * pow(rv, alpha)) * 255;
+                curr_ray.ray_color.r += light_color.x * (k_dif.x * (ln)+k_spec.x * pow(rv, alpha)) * 255;
+                curr_ray.ray_color.g += light_color.y * (k_dif.y * (ln)+k_spec.y * pow(rv, alpha)) * 255;
+                curr_ray.ray_color.b += light_color.z * (k_dif.z * (ln)+k_spec.z * pow(rv, alpha)) * 255;
             }
         }
     }
@@ -457,7 +478,6 @@ void draw_scene()
 
     for (unsigned int x = 0; x < WIDTH; x++)
     {
-
         for (unsigned int y = 0; y < HEIGHT; y++)
         {
             RayIntersectTriangle(nullptr, all_rays[x][y]);
@@ -465,17 +485,21 @@ void draw_scene()
             GetShadowRay(all_rays[x][y]);
 
             //if you can't find the intersection, plot a white color
-            if (all_rays[x][y].sph_intersect == nullptr && all_rays[x][y].tri_intersect == nullptr) {
-                plot_pixel(x, y, 1.0f * 255, 1.0f * 255, 1.0f * 255);
+            if (all_rays[x][y].sph_intersect == nullptr && all_rays[x][y].tri_intersect == nullptr) 
+            {
+                plot_pixel(x, y, 0.50f * 255, 0.50f * 255, 0.50f * 255);
             }
 
             //clamp to 0 or 255 before actually plotting the color
-            else {
-                double r = std::min(std::max(all_rays[x][y].ray_color.r + 255 * ambient_light[0], 0.0), 255.0);
-                double g = std::min(std::max(all_rays[x][y].ray_color.g + 255 * ambient_light[0], 0.0), 255.0);
-                double b = std::min(std::max(all_rays[x][y].ray_color.b + 255 * ambient_light[0], 0.0), 255.0);
+            else 
+            {
+                glm::dvec3 fin_col;
 
-                plot_pixel(x, y, r, g, b);
+                fin_col.r = std::min(std::max(all_rays[x][y].ray_color.r + 255.0 * ambient_light[0], 0.0), 255.0);
+                fin_col.g = std::min(std::max(all_rays[x][y].ray_color.g + 255.0 * ambient_light[0], 0.0), 255.0);
+                fin_col.b = std::min(std::max(all_rays[x][y].ray_color.b + 255.0 * ambient_light[0], 0.0), 255.0);
+
+                plot_pixel(x, y, fin_col.r, fin_col.g, fin_col.b);
             }
         }
     }
