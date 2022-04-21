@@ -199,7 +199,7 @@ bool DoesRayIntersectTriangle(const Triangle* tri_check, glm::dvec3 point_to_che
     double v_val = (first_d_first * second_d_point - first_d_second * first_d_point) / divider;
 
     // Check if point is in triangle
-    return ((u_val + v_val < 1) && (v_val >= 0) && (u_val >= 0));
+    return ((u_val + v_val < 1.0) && (v_val >= 0) && (u_val >= 0));
 }
 
 Triangle triangles[MAX_TRIANGLES];
@@ -243,9 +243,9 @@ void RayIntersectSwphere(const Sphere* sphere, Ray& ray) {
             Sphere* this_sphere = &spheres[i];
 
             glm::dvec3 sphere_pos;
+            Arr2Vec(this_sphere->position, sphere_pos);
 
             double radius = this_sphere->radius;
-            Arr2Vec(this_sphere->position, sphere_pos);
 
             double b = 2 * (ray.ray_direction.x * (ray.ray_origin.x - sphere_pos.x) + ray.ray_direction.y * (ray.ray_origin.y - sphere_pos.y) + ray.ray_direction.z * (ray.ray_origin.z - sphere_pos.z));
             double c = pow((ray.ray_origin.x - sphere_pos.x),2) + pow((ray.ray_origin.y - sphere_pos.y),2) + pow((ray.ray_origin.z - sphere_pos.z),2) - pow(radius,2);
@@ -313,12 +313,17 @@ void RayIntersectTriangle(const Triangle* triangle, Ray& curr_ray) {
 }
 
 
+/// <summary>
+/// Iterate through all light sources, firing shadow rays from points of intersection on
+/// the ray
+/// </summary>
+/// <param name="curr_ray"></param>
+
 void GetShadowRay(Ray& curr_ray) {
-    //Fire a shadow ray first for each light source
     for (int i = 0; i < num_lights; i++) {
         Light* curr_light = &lights[i];
 
-        //If the ray actually intersected with something, fire the shadow ray
+        // shadow ray will only be cast when intersection took place
         if (curr_ray.sph_intersect != nullptr || curr_ray.tri_intersect != nullptr) {
 
             glm::dvec3 light_pos;
@@ -327,7 +332,7 @@ void GetShadowRay(Ray& curr_ray) {
             Arr2Vec(curr_light->position, light_pos);
             Arr2Vec(curr_light->position, light_reflect);
 
-            light_reflect -= curr_ray.intersect_point;
+            light_reflect = light_reflect - curr_ray.intersect_point;
 
             light_reflect = normalize(light_reflect);
 
