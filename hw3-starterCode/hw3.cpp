@@ -703,7 +703,7 @@ void init()
       all_rays[i].resize(HEIGHT);
   }
 
-  // fill in all rays
+  // fill in all rays with appropriate direction vectors
   for (int i = 0; i < WIDTH; i++) {
       for (int j = 0; j < HEIGHT; j++) {
           all_rays[i][j].Set_Ray(zero_vector, glm::dvec3((i * x_delta) + x_min, (j * y_delta) + y_min, -1.0f));
