@@ -194,6 +194,47 @@ void plot_pixel(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 
 
 /// <summary>
+/// Initalizes the ray data structure and fills in all arrays with correct direction
+/// </summary>
+void InitRays()
+{
+    //initialize the rays
+    all_rays.resize(WIDTH);
+
+    for (int i = 0; i < WIDTH; i++)
+    {
+        all_rays[i].resize(HEIGHT);
+    }
+
+    double x_inc, y_inc, x_shift, y_shift;
+
+    //screen calculations
+    double tan_val = tan((fov / 2.0) * (M_PI / 180.0));
+    double max_x_val = tan_val * aspect_ratio;
+    double max_y_val = tan_val;
+    double min_x_val = tan_val * -aspect_ratio;
+    double min_y_val = -tan_val;
+
+    //set up increment values
+    x_inc = (max_x_val - min_x_val) / static_cast<float>(WIDTH);
+    y_inc = (max_y_val - min_y_val) / static_cast<float>(HEIGHT);
+
+    x_shift = min_x_val;
+    y_shift = min_y_val;
+
+    // fill in all rays with appropriate direction vectors
+    for (uint32_t x = 0; x < WIDTH; ++x) {
+        for (uint32_t y = 0; y < HEIGHT; ++y) {
+            all_rays[x][y].Set_Ray(zero_vector, glm::dvec3((x * x_inc) + min_x_val, (y * y_inc) + min_y_val, -1.0f));
+            y_shift = y_shift + y_inc;
+        }
+        y_shift = min_y_val;
+        x_shift = x_shift + x_inc;
+    }
+}
+
+
+/// <summary>
 /// Calculates using the barycentric coordinate method
 /// </summary>
 /// <param name="triangle"></param>
@@ -670,39 +711,8 @@ void init()
   glClearColor(0,0,0,0);
   glClear(GL_COLOR_BUFFER_BIT);
 
-  double x_inc, y_inc, x_shift, y_shift;
+  InitRays();
 
-  //screen calculations
-  double tan_val = tan((fov / 2.0)  * (M_PI / 180.0));
-  double max_x_val = tan_val * aspect_ratio;
-  double max_y_val = tan_val;
-  double min_x_val = tan_val * -aspect_ratio;
-  double min_y_val = -tan_val;
-
-  //set up increment values
-  x_inc = (max_x_val - min_x_val) / static_cast<float>(WIDTH);
-  y_inc = (max_y_val - min_y_val) / static_cast<float>(HEIGHT);
-
-  x_shift = min_x_val;
-  y_shift = min_y_val;
-
-  //initialize the rays
-  all_rays.resize(WIDTH);
-
-  for (int i = 0; i < WIDTH; i++)
-  {
-      all_rays[i].resize(HEIGHT);
-  }
-
-  // fill in all rays with appropriate direction vectors
-  for (uint32_t x = 0; x < WIDTH; ++x) {
-      for (uint32_t y = 0; y < HEIGHT; ++y) {
-          all_rays[x][y].Set_Ray(zero_vector, glm::dvec3((x * x_inc) + min_x_val, (y * y_inc) + min_y_val, -1.0f));
-          y_shift = y_shift + y_inc;
-      }
-      y_shift = min_y_val;
-      x_shift = x_shift + x_inc;
-  }
 }
 
 void idle()
